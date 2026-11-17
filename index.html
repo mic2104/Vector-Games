@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="id"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Vector Games</title>
+<style>
+*{box-sizing:border-box}body{margin:0;font-family:system-ui,sans-serif;background:#0f1424;color:#e8ecf8;text-align:center}
+h1{font-size:20px;margin:12px 0 4px}nav button,.b{background:#1e2a4d;color:#e8ecf8;border:1px solid #3a4a80;border-radius:8px;padding:8px 12px;margin:3px;font-size:15px;cursor:pointer}
+nav button.on{background:#4f6bff}.b:active{background:#4f6bff}.b:disabled{opacity:.4}
+canvas{background:#161d36;border-radius:10px;max-width:100%;touch-action:manipulation}
+#info{margin:6px;font-size:15px;min-height:22px}.card{max-width:660px;margin:auto;padding:6px}
+table{margin:6px auto;border-collapse:collapse;min-width:260px}td,th{padding:3px 12px;border-bottom:1px solid #2a3560}
+input{padding:7px;border-radius:6px;border:1px solid #3a4a80;background:#161d36;color:#fff}
+small{color:#8e9bc8}
+</style></head><body>
+<h1>🏁 Vector Games</h1>
+<nav><button id="n1" class="on" onclick="show(1)">Vector Racer</button><button id="n2" onclick="show(2)">Vector: The Game</button><button id="n3" onclick="show(3)">Papan Skor</button></nav>
+<div class="card">
+<div id="g1"><div id="info1" id="info"></div><canvas id="cv" width="640" height="400"></canvas>
+<div><small>Klik salah satu titik hijau untuk mengatur percepatan (−1/0/+1 per sumbu). Selesaikan 1 putaran dengan giliran sesedikit mungkin. Keluar lintasan = crash (+3 giliran).</small></div>
+<button class="b" onclick="rInit()">Ulang</button></div>
+<div id="g2" hidden><div id="info2"></div><canvas id="cv2" width="300" height="300"></canvas>
+<div id="btns"></div><button class="b" onclick="vUndo()">↩ Undo</button><button class="b" onclick="vReset()">Reset level</button>
+<div><small>Ubah vektor (titik putih) agar sama dengan target (cincin kuning) dalam jumlah langkah terbatas.</small></div></div>
+<div id="g3" hidden><h3>Papan Skor</h3><div id="lb"></div>
+<small id="mode"></small></div>
+<div style="margin-top:8px">Nama: <input id="name" maxlength="14" placeholder="Pemain" value="Pemain"></div>
+</div>
+<script>
+// ====== DATABASE (Google Sheets via Apps Script). Isi URL Web App di bawah. Kosong = simpan lokal. ======
+const SHEET_URL = "";
+const $=id=>document.getElementById(id);
+const nm=()=>($("name").value||"Pemain").trim().slice(0,14);
+async function submit(game,score){
+  const row={name:nm(),game,score,t:Date.now()};
+  try{const a=JSON.parse(localStorage.getItem("vg")||"[]");a.push(row);localStorage.setItem("vg",JSON.stringify(a))}catch(e){}
+  if(SHEET_URL){try{await fetch(SHEET_URL,{method:"POST",mode:"no-cors",body:JSON.stringify(row)})}catch(e){}}
+}
+async function rows(){
+  if(SHEET_URL){try{const r=await fetch(SHEET_URL);return await r.json()}catch(e){}}
+  try{return JSON.parse(localStorage.getItem("vg")||"[]")}catch(e){return[]}
+}
+async function board(){
+  const a=await rows();$("mode").textContent=SHEET_URL?"Database: Google Sheets":"Database: lokal (isi SHEET_URL untuk Google Sheets)";
+  const mk=(g,asc,t)=>{const l=a.filter(r=>r.game===g).sort((x,y)=>asc?x.score-y.score:y.score-x.score).slice(0,5);
+    return `<h4>${t}</h4><table>`+(l.map((r,i)=>`<tr><td>${i+1}</td><td>${String(r.name).replace(/</g,"&lt;")}</td><td>${r.score}</td></tr>`).join("")||"<tr><td>Belum ada skor</td></tr>")+"</table>"};
+  $("lb").innerHTML=mk("racer",true,"Vector Racer (giliran, lebih kecil lebih baik)")+mk("vector",false,"Vector: The Game (poin)");
+}
+function show(n){[1,2,3].forEach(i=>{$("g"+i).hidden=i!==n;$("n"+i).className=i===n?"on":""});if(n===3)board()}
+
+// ====== VECTOR RACER ======
+const cv=$("cv"),cx=cv.getContext("2d"),S=20,CX=16,CY=10;
+let P,V,turns,prog,trail,done;
+const inT=(x,y)=>((x-CX)/14.5)**2+((y-CY)/8.5)**2<=1&&((x-CX)/7.5)**2+((y-CY)/3.5)**2>=1;
+const segOK=(a,b)=>{for(let i=0;i<=12;i++){const t=i/12;if(!inT(a.x+(b.x-a.x)*t,a.y+(b.y-a.y)*t))return false}return true};
+const ang=p=>Math.atan2(p.y-CY,p.x-CX);
+function rInit(){P={x:16,y:16};V={x:0,y:0};turns=0;prog=0;trail=[P];done=false;rDraw()}
+function cands(){const o=[];for(let dx=-1;dx<=1;dx++)for(let dy=-1;dy<=1;dy++)o.push({x:P.x+V.x+dx,y:P.y+V.y+dy});return o}
+function rDraw(msg){
+  cx.clearRect(0,0,640,400);cx.fillStyle="#2c3556";cx.beginPath();
+  cx.ellipse(CX*S,CY*S,14.5*S,8.5*S,0,0,7);cx.ellipse(CX*S,CY*S,7.5*S,3.5*S,0,0,7);cx.fill("evenodd");
+  cx.strokeStyle="#ffffff10";for(let i=0;i<=32;i++){cx.beginPath();cx.moveTo(i*S,0);cx.lineTo(i*S,400);cx.stroke()}
+  for(let j=0;j<=20;j++){cx.beginPath();cx.moveTo(0,j*S);cx.lineTo(640,j*S);cx.stroke()}
+  cx.strokeStyle="#ffd84a";cx.beginPath();cx.moveTo(16*S,13.5*S);cx.lineTo(16*S,18.5*S);cx.stroke();
+  cx.strokeStyle="#ff6b6b";cx.lineWidth=3;cx.beginPath();trail.forEach((p,i)=>i?cx.lineTo(p.x*S,p.y*S):cx.moveTo(p.x*S,p.y*S));cx.stroke();cx.lineWidth=1;
+  if(!done)cands().forEach(c=>{cx.fillStyle=inT(c.x,c.y)?"#4ade80":"#f8717166";cx.beginPath();cx.arc(c.x*S,c.y*S,5,0,7);cx.fill()});
+  cx.fillStyle="#fff";cx.beginPath();cx.arc(P.x*S,P.y*S,7,0,7);cx.fill();
+  $("info1").textContent=msg||`Giliran: ${turns} | Kecepatan: (${V.x}, ${V.y}) | Progres: ${Math.min(100,Math.round(prog/6.1*100))}%`;
+}
+cv.onclick=e=>{
+  if(done)return;const r=cv.getBoundingClientRect(),k=640/r.width;
+  const mx=(e.clientX-r.left)*k,my=(e.clientY-r.top)*k;
+  let best=null,bd=1e9;cands().forEach(c=>{const d=Math.hypot(c.x*S-mx,c.y*S-my);if(d<bd){bd=d;best=c}});
+  if(bd>16)return;turns++;
+  if(segOK(P,best)){let d=ang(best)-ang(P);while(d>Math.PI)d-=2*Math.PI;while(d<-Math.PI)d+=2*Math.PI;prog-=d;
+    V={x:best.x-P.x,y:best.y-P.y};P=best;trail.push(P);
+    if(prog>=6.1){done=true;submit("racer",turns);rDraw(`🏆 Selesai dalam ${turns} giliran! Skor tersimpan.`);return}rDraw()}
+  else{turns+=2;V={x:0,y:0};rDraw("💥 Crash! +3 giliran, kecepatan direset")}
+};
+
+// ====== VECTOR: THE GAME ======
+const L=[
+ {s:[0,0],t:[5,4],m:3,o:[["+(2,1)",v=>[v[0]+2,v[1]+1]],["+(1,2)",v=>[v[0]+1,v[1]+2]],["−(1,0)",v=>[v[0]-1,v[1]]]]},
+ {s:[1,1],t:[-3,4],m:3,o:[["×2",v=>[v[0]*2,v[1]*2]],["Putar 90°",v=>[-v[1],v[0]]],["+(−1,2)",v=>[v[0]-1,v[1]+2]]]},
+ {s:[2,3],t:[6,-4],m:3,o:[["Flip Y",v=>[v[0],-v[1]]],["+(4,−1)",v=>[v[0]+4,v[1]-1]],["Putar 90°",v=>[-v[1],v[0]]],["Tukar x,y",v=>[v[1],v[0]]]]},
+ {s:[3,-2],t:[6,5],m:4,o:[["×2",v=>[v[0]*2,v[1]*2]],["Putar 90°",v=>[-v[1],v[0]]],["+(2,0)",v=>[v[0]+2,v[1]]],["−(0,1)",v=>[v[0],v[1]-1]]]},
+ {s:[-2,1],t:[-1,-6],m:3,o:[["Putar 90°",v=>[-v[1],v[0]]],["×3",v=>[v[0]*3,v[1]*3]],["+(2,0)",v=>[v[0]+2,v[1]]],["Flip X",v=>[-v[0],v[1]]],["Tukar x,y",v=>[v[1],v[0]]]]}
+];
+const c2=$("cv2").getContext("2d");let lv=0,cur,hist,pts=0;
+function vLoad(i){lv=i;vReset(true)}
+function vReset(b){const l=L[lv];cur=l.s.slice();hist=[];vDraw();
+  $("btns").innerHTML=l.o.map((o,i)=>`<button class="b" onclick="vOp(${i})">${o[0]}</button>`).join("")}
+function vDraw(msg){
+  const l=L[lv],U=14,c=150;c2.clearRect(0,0,300,300);c2.strokeStyle="#ffffff18";
+  for(let i=-10;i<=10;i++){c2.beginPath();c2.moveTo(c+i*U,0);c2.lineTo(c+i*U,300);c2.moveTo(0,c-i*U);c2.lineTo(300,c-i*U);c2.stroke()}
+  c2.strokeStyle="#fff6";c2.beginPath();c2.moveTo(c,0);c2.lineTo(c,300);c2.moveTo(0,c);c2.lineTo(300,c);c2.stroke();
+  const X=v=>c+Math.max(-10,Math.min(10,v[0]))*U,Y=v=>c-Math.max(-10,Math.min(10,v[1]))*U;
+  c2.strokeStyle="#ffd84a";c2.lineWidth=3;c2.beginPath();c2.arc(X(l.t),Y(l.t),9,0,7);c2.stroke();c2.lineWidth=1;
+  c2.strokeStyle="#fff";c2.beginPath();c2.moveTo(c,c);c2.lineTo(X(cur),Y(cur));c2.stroke();
+  c2.fillStyle="#fff";c2.beginPath();c2.arc(X(cur),Y(cur),6,0,7);c2.fill();
+  $("info2").innerHTML=msg||`Level ${lv+1}/${L.length} | Sekarang (${cur}) → Target (${l.t}) | Sisa langkah: ${l.m-hist.length} | Poin: ${pts}`;
+}
+function vOp(i){
+  const l=L[lv];if(hist.length>=l.m)return;hist.push(cur);cur=l.o[i][1](cur);
+  if(cur[0]===l.t[0]&&cur[1]===l.t[1]){const g=100+(l.m-hist.length)*25;pts+=g;vDraw(`✅ Level ${lv+1} lulus! +${g} poin`);
+    $("btns").innerHTML="";
+    setTimeout(()=>{if(lv+1<L.length){vLoad(lv+1)}else{submit("vector",pts);vDraw(`🏆 Tamat! Total ${pts} poin (tersimpan)`);$("btns").innerHTML='<button class="b" onclick="pts=0;vLoad(0)">Main lagi</button>'}},1100);return}
+  if(hist.length>=l.m){vDraw("❌ Langkah habis. Tekan Reset level");return}vDraw()
+}
+function vUndo(){if(hist.length){cur=hist.pop();vDraw()}}
+rInit();vLoad(0);
+</script></body></html>
